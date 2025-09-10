@@ -43,15 +43,35 @@ extern volatile bool force_quit;
 /* 处理单个数据包的业务逻辑 */
 static int process_packet_business_logic(struct rte_mbuf *pkt, struct flow_info *flow, uint16_t worker_idx)
 {
-    /* 这里实现具体的业务逻辑 */
-    /* 示例：简单的包计数和字节统计 */
-    
     struct worker_core_stats *stats = &worker_stats[worker_idx];
+    uint8_t direction;
     
-    /* 更新流统计 */
-    update_flow_stats(flow, pkt);
+    /* 确定数据包方向 */
+    direction = determine_flow_direction(&flow->key);
     
-    /* 业务处理示例：根据协议类型进行不同处理 */
+    /* 更新增强流统计 */
+    flow_stats_update(&flow->stats, pkt, direction);
+    
+    /* 协议识别（只对新流进行识别，或者协议未识别的流）*/
+    if (flow->protocol.protocol_id == 0) {
+        if (protocol_identify(pkt, &flow->protocol) == 0) {
+            RTE_LOG(DEBUG, WORKER, "Protocol identified: %s (confidence: %u)\n",
+                    flow->protocol.protocol_name, flow->protocol.confidence);
+        }
+    }
+    
+    /* 应用识别（只对HTTP/HTTPS流量进行识别）*/
+    if (flow->application.app_id == 0 && 
+        (flow->key.dst_port == 80 || flow->key.dst_port == 443 || 
+         flow->key.src_port == 80 || flow->key.src_port == 443)) {
+        if (app_identify(pkt, &flow->application) == 0) {
+            RTE_LOG(DEBUG, WORKER, "Application identified: %s (confidence: %u, domain: %s)\n",
+                    flow->application.app_name, flow->application.confidence,
+                    flow->application.matched_domain);
+        }
+    }
+    
+    /* 业务处理：根据协议类型进行不同处理 */
     switch (flow->key.protocol) {
     case IPPROTO_TCP:
         /* TCP包处理逻辑 */
@@ -59,7 +79,7 @@ static int process_packet_business_logic(struct rte_mbuf *pkt, struct flow_info 
         break;
         
     case IPPROTO_UDP:
-        /* UDP包处理逻辑 */
+        /* UDP包处理逻辑 */  
         // 可以在这里添加UDP流量分析等
         break;
         
@@ -73,14 +93,8 @@ static int process_packet_business_logic(struct rte_mbuf *pkt, struct flow_info 
         break;
     }
     
-    /* 可以在这里添加更多业务逻辑：
-     * - DPI (Deep Packet Inspection)
-     * - 应用层协议识别
-     * - 流量分类
-     * - 安全检测
-     * - QoS处理
-     * 等等
-     */
+    /* 标记需要导出到ClickHouse */
+    flow->need_export = 1;
     
     stats->processed_packets++;
     
@@ -271,6 +285,9 @@ int worker_core_main(void *arg)
             /* 清理过期流（只有一个worker负责，避免竞争）*/
             if (worker_idx == 0) {
                 flow_table_cleanup_expired();
+                
+                /* 定期导出流数据到ClickHouse */
+                clickhouse_flush_buffer();
             }
             
             prev_tsc = cur_tsc;

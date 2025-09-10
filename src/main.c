@@ -94,6 +94,18 @@ void print_stats(void)
         /* 打印流表统计 */
         flow_table_stats_print();
         
+        /* 打印增强统计信息 */
+        print_enhanced_stats();
+        
+        /* 打印协议识别统计 */
+        print_protocol_stats();
+        
+        /* 打印应用识别统计 */
+        print_application_stats();
+        
+        /* 打印ClickHouse统计 */
+        print_clickhouse_stats();
+        
         printf("=======================================================\n");
         printf("Press Ctrl+C to quit\n");
         
@@ -273,6 +285,30 @@ int main(int argc, char **argv)
         rte_panic("Cannot initialize flow table\n");
     }
     
+    /* 初始化协议识别引擎 */
+    ret = protocol_engine_init();
+    if (ret < 0) {
+        RTE_LOG(WARNING, MAIN, "Protocol engine initialization failed, continuing without protocol identification\n");
+    }
+    
+    /* 初始化应用识别引擎 */
+    ret = app_engine_init();
+    if (ret < 0) {
+        RTE_LOG(WARNING, MAIN, "Application engine initialization failed, continuing without application identification\n");
+    }
+    
+    /* 初始化ClickHouse客户端 */
+    ret = clickhouse_init();
+    if (ret < 0) {
+        RTE_LOG(WARNING, MAIN, "ClickHouse initialization failed, will use backup file output\n");
+    }
+    
+    /* 初始化增强统计模块 */
+    ret = enhanced_stats_init();
+    if (ret < 0) {
+        RTE_LOG(WARNING, MAIN, "Enhanced statistics initialization failed, continuing with basic stats\n");
+    }
+    
     /* 注册信号处理函数 */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
@@ -308,6 +344,13 @@ cleanup:
     /* 清理资源 */
     printf("\nCleaning up...\n");
     
+    /* 导出剩余数据到ClickHouse */
+    clickhouse_flush_buffer();
+    
+    enhanced_stats_cleanup();
+    app_engine_cleanup();
+    protocol_engine_cleanup();
+    clickhouse_cleanup();
     flow_table_cleanup();
     rings_cleanup();
     dpdk_cleanup();

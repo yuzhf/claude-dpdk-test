@@ -1,6 +1,7 @@
 /*
  * DPDK多网口多队列收发包程序 - 主要头文件
  * 支持多核心生产者消费者模型，基于rte_ring无锁队列实现
+ * 扩展功能：协议识别、应用识别、多维度统计、ClickHouse输出
  */
 
 #ifndef _DPDK_MULTI_PORT_H_
@@ -20,6 +21,9 @@
 #include <rte_tcp.h>
 #include <rte_udp.h>
 
+/* Hyperscan头文件 */
+#include <hs.h>
+
 /* 应用程序配置常量 */
 #define MAX_PORTS           8       /* 最大网口数 */
 #define MAX_QUEUES_PER_PORT 16      /* 每个网口最大队列数 */
@@ -38,6 +42,43 @@
 /* 五元组哈希表配置 */
 #define FLOW_HASH_ENTRIES   1024*1024  /* 流表最大条目数 */
 #define FLOW_TIMEOUT        300         /* 流超时时间(秒) */
+
+/* 协议识别配置 */
+#define MAX_PROTOCOL_RULES  10000       /* 最大协议规则数 */
+#define MAX_PROTOCOL_NAME   64          /* 协议名称最大长度 */
+#define PROTOCOL_CONFIG_FILE "./config/protocol_port_mapping.conf"
+
+/* 应用识别配置 */
+#define MAX_APP_RULES       50000       /* 最大应用规则数 */
+#define MAX_APP_NAME        64          /* 应用名称最大长度 */
+#define MAX_DOMAIN_LENGTH   256         /* 域名最大长度 */
+#define APP_RULES_FILE      "./config/app_domain_rules.conf"
+
+/* ClickHouse配置 */
+#define CLICKHOUSE_HOST     "127.0.0.1"
+#define CLICKHOUSE_PORT     9000
+#define CLICKHOUSE_DB       "traffic_analysis"
+#define CLICKHOUSE_TABLE    "flow_stats"
+#define CH_BATCH_SIZE       1000        /* ClickHouse批量插入大小 */
+
+/* 流方向定义 */
+#define FLOW_DIR_UPSTREAM   1           /* 上行 */
+#define FLOW_DIR_DOWNSTREAM 2           /* 下行 */
+
+/* 协议识别结果 */
+struct protocol_info {
+    uint16_t protocol_id;               /* 协议ID */
+    char protocol_name[MAX_PROTOCOL_NAME]; /* 协议名称 */
+    uint8_t confidence;                 /* 识别置信度 */
+} __rte_packed;
+
+/* 应用识别结果 */
+struct app_info {
+    uint16_t app_id;                    /* 应用ID */
+    char app_name[MAX_APP_NAME];        /* 应用名称 */
+    uint8_t confidence;                 /* 识别置信度 */
+    char matched_domain[MAX_DOMAIN_LENGTH]; /* 匹配的域名 */
+} __rte_packed;
 
 /* 队列配置结构 */
 struct queue_conf {
@@ -72,14 +113,59 @@ struct flow_key {
     uint8_t  protocol;      /* 协议类型 */
 } __rte_packed;
 
-/* 流信息结构 */
+/* 增强的流统计信息 */
+struct flow_stats {
+    /* 基础统计 */
+    uint64_t packets;           /* 总包数量 */
+    uint64_t bytes;             /* 总字节数 */
+    
+    /* 方向统计 */
+    uint64_t up_packets;        /* 上行包数量 */
+    uint64_t up_bytes;          /* 上行字节数 */
+    uint64_t down_packets;      /* 下行包数量 */
+    uint64_t down_bytes;        /* 下行字节数 */
+    
+    /* 时间统计 */
+    uint64_t first_seen;        /* 首次发现时间 */
+    uint64_t last_seen;         /* 最后发现时间 */
+    uint64_t duration;          /* 流持续时间 */
+    
+    /* 速率统计 */
+    double avg_pps;             /* 平均包速率 */
+    double avg_bps;             /* 平均字节速率 */
+    uint32_t peak_pps;          /* 峰值包速率 */
+    uint64_t peak_bps;          /* 峰值字节速率 */
+    
+    /* 包大小统计 */
+    uint32_t min_packet_size;   /* 最小包大小 */
+    uint32_t max_packet_size;   /* 最大包大小 */
+    uint32_t avg_packet_size;   /* 平均包大小 */
+    
+    /* TCP特有统计 */
+    uint32_t tcp_flags;         /* TCP标志位统计 */
+    uint16_t tcp_window_size;   /* TCP窗口大小 */
+    uint32_t tcp_seq_gaps;      /* TCP序列号间隙 */
+    
+    /* 服务质量统计 */
+    uint32_t retransmissions;   /* 重传计数 */
+    uint32_t out_of_order;      /* 乱序包计数 */
+    uint32_t lost_packets;      /* 丢包计数 */
+} __rte_cache_aligned;
+
+/* 增强的流信息结构 */
 struct flow_info {
-    struct flow_key key;    /* 五元组 */
-    uint64_t packets;       /* 包数量 */
-    uint64_t bytes;         /* 字节数 */
-    uint64_t first_seen;    /* 首次发现时间 */
-    uint64_t last_seen;     /* 最后发现时间 */
-    uint8_t  flags;         /* 流标志位 */
+    struct flow_key key;                /* 五元组 */
+    struct flow_stats stats;            /* 流统计信息 */
+    struct protocol_info protocol;      /* 协议识别结果 */
+    struct app_info application;        /* 应用识别结果 */
+    
+    uint8_t  flags;                     /* 流状态标志位 */
+    uint8_t  direction_detected;        /* 方向检测标志 */
+    uint32_t src_is_server;             /* 源端是否为服务器端 */
+    
+    /* 用于ClickHouse输出 */
+    uint8_t  need_export;               /* 需要导出标志 */
+    uint64_t last_exported;             /* 上次导出时间 */
 } __rte_cache_aligned;
 
 /* 应用程序配置结构 */
@@ -107,6 +193,20 @@ struct app_config {
     
     /* 内存池 */
     struct rte_mempool *mbuf_pool;          /* mbuf内存池 */
+    
+    /* 协议识别配置 */
+    void *protocol_engine;                  /* 协议识别引擎 */
+    
+    /* 应用识别配置 */
+    hs_database_t *app_database;            /* Hyperscan数据库 */
+    hs_scratch_t *app_scratch;              /* Hyperscan临时空间 */
+    
+    /* ClickHouse配置 */
+    void *clickhouse_client;                /* ClickHouse客户端 */
+    char ch_host[64];                       /* ClickHouse主机 */
+    uint16_t ch_port;                       /* ClickHouse端口 */
+    char ch_database[64];                   /* 数据库名 */
+    char ch_table[64];                      /* 表名 */
 };
 
 /* 全局变量声明 */
@@ -150,6 +250,32 @@ int worker_core_main(void *arg);
 void print_stats(void);
 void signal_handler(int sig);
 
+/* 协议识别模块 */
+int protocol_engine_init(void);
+int protocol_identify(struct rte_mbuf *pkt, struct protocol_info *proto);
+void protocol_engine_cleanup(void);
+
+/* 应用识别模块 */
+int app_engine_init(void);
+int app_identify(struct rte_mbuf *pkt, struct app_info *app);
+void app_engine_cleanup(void);
+
+/* 增强流表统计 */
+void flow_stats_init(struct flow_stats *stats);
+void flow_stats_update(struct flow_stats *stats, struct rte_mbuf *pkt, uint8_t direction);
+void flow_stats_calculate(struct flow_info *flow);
+
+/* ClickHouse输出模块 */
+int clickhouse_init(void);
+int clickhouse_export_flow(struct flow_info *flow);
+int clickhouse_export_batch(struct flow_info **flows, int count);
+void clickhouse_cleanup(void);
+
+/* 多维度统计输出 */
+void print_enhanced_stats(void);
+void print_protocol_stats(void);
+void print_application_stats(void);
+
 /* 内联函数 - 五元组哈希 */
 static inline uint32_t flow_hash_func(const void *key, uint32_t key_len, uint32_t init_val)
 {
@@ -161,6 +287,17 @@ static inline uint32_t flow_hash_func(const void *key, uint32_t key_len, uint32_
                              sizeof(struct flow_key) / sizeof(uint32_t), 
                              init_val);
     return hash_val;
+}
+
+/* 内联函数 - 判断流方向 */
+static inline uint8_t determine_flow_direction(struct flow_key *key)
+{
+    /* 简单的方向判断逻辑：较大端口号通常是客户端 */
+    if (key->src_port > key->dst_port) {
+        return FLOW_DIR_UPSTREAM;   /* 源端口大，认为是上行 */
+    } else {
+        return FLOW_DIR_DOWNSTREAM; /* 目的端口大，认为是下行 */
+    }
 }
 
 #endif /* _DPDK_MULTI_PORT_H_ */
