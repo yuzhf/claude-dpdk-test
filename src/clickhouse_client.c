@@ -20,7 +20,7 @@
 
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_CLICKHOUSE RTE_LOGTYPE_USER10
+#define RTE_LOGTYPE_CLICKHOUSE RTE_LOGTYPE_USER2
 
 /* ClickHouse客户端结构 */
 struct clickhouse_client {

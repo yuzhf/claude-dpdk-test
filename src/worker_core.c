@@ -257,8 +257,8 @@ int worker_core_main(void *arg)
         return -1;
     }
     
-    RTE_LOG(INFO, WORKER, "Worker Core %u started, ring: %s\n", 
-            lcore_id, rte_ring_get_name(wconf->rx_ring));
+    RTE_LOG(INFO, WORKER, "Worker Core %u started, worker_idx: %d\n", 
+            lcore_id, worker_idx);
     
     /* 初始化统计信息 */
     memset(&worker_stats[worker_idx], 0, sizeof(struct worker_core_stats));

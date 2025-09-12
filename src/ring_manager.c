@@ -17,7 +17,7 @@
 
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_RING RTE_LOGTYPE_USER3
+#define RTE_LOGTYPE_RING_MANAGER RTE_LOGTYPE_USER3
 
 /* Ring统计信息 */
 struct ring_stats {
@@ -47,11 +47,11 @@ static struct rte_ring *create_single_ring(const char *name, unsigned count, int
     
     ring = rte_ring_create(name, count, socket_id, flags);
     if (ring == NULL) {
-        RTE_LOG(ERR, RING, "Cannot create ring %s: %s\n", name, rte_strerror(rte_errno));
+        RTE_LOG(ERR, RING_MANAGER, "Cannot create ring %s: %s\n", name, rte_strerror(rte_errno));
         return NULL;
     }
     
-    RTE_LOG(INFO, RING, "Created ring %s: size=%u, socket=%d, flags=0x%x\n",
+    RTE_LOG(INFO, RING_MANAGER, "Created ring %s: size=%u, socket=%d, flags=0x%x\n",
             name, count, socket_id, flags);
     
     return ring;
@@ -100,7 +100,7 @@ static int setup_rx_worker_connections(void)
                 g_app_config->worker_rings[ring_idx] = ring;
                 ring_idx++;
             } else {
-                RTE_LOG(ERR, RING, "Too many rings, maximum is %d\n", MAX_RINGS);
+                RTE_LOG(ERR, RING_MANAGER, "Too many rings, maximum is %d\n", MAX_RINGS);
                 return -1;
             }
         }
@@ -108,7 +108,7 @@ static int setup_rx_worker_connections(void)
     
     g_app_config->n_rings = ring_idx;
     
-    RTE_LOG(INFO, RING, "Created %u rings for RX-Worker connections\n", ring_idx);
+    RTE_LOG(INFO, RING_MANAGER, "Created %u rings for RX-Worker connections\n", ring_idx);
     return 0;
 }
 
@@ -117,12 +117,12 @@ int rings_init(void)
 {
     int ret;
     
-    RTE_LOG(INFO, RING, "Initializing rings...\n");
+    RTE_LOG(INFO, RING_MANAGER, "Initializing rings...\n");
     
     /* 分配Ring管理器内存 */
     g_ring_mgr = rte_zmalloc("ring_manager", sizeof(struct ring_manager), RTE_CACHE_LINE_SIZE);
     if (g_ring_mgr == NULL) {
-        RTE_LOG(ERR, RING, "Cannot allocate memory for ring manager\n");
+        RTE_LOG(ERR, RING_MANAGER, "Cannot allocate memory for ring manager\n");
         return -1;
     }
     
@@ -133,7 +133,7 @@ int rings_init(void)
     /* 建立RX核心和Worker核心的连接 */
     ret = setup_rx_worker_connections();
     if (ret != 0) {
-        RTE_LOG(ERR, RING, "Failed to setup RX-Worker connections\n");
+        RTE_LOG(ERR, RING_MANAGER, "Failed to setup RX-Worker connections\n");
         rte_free(g_ring_mgr);
         g_ring_mgr = NULL;
         return ret;
@@ -144,7 +144,7 @@ int rings_init(void)
                                     sizeof(struct ring_stats) * g_app_config->n_rings,
                                     RTE_CACHE_LINE_SIZE);
     if (g_ring_mgr->stats == NULL) {
-        RTE_LOG(ERR, RING, "Cannot allocate memory for ring stats\n");
+        RTE_LOG(ERR, RING_MANAGER, "Cannot allocate memory for ring stats\n");
         rte_free(g_ring_mgr);
         g_ring_mgr = NULL;
         return -1;
@@ -153,7 +153,7 @@ int rings_init(void)
     g_ring_mgr->rings = g_app_config->worker_rings;
     g_ring_mgr->n_rings = g_app_config->n_rings;
     
-    RTE_LOG(INFO, RING, "Ring initialization completed: %u rings, %u producers, %u consumers\n",
+    RTE_LOG(INFO, RING_MANAGER, "Ring initialization completed: %u rings, %u producers, %u consumers\n",
             g_ring_mgr->n_rings, g_ring_mgr->n_producers, g_ring_mgr->n_consumers);
     
     /* 打印Ring连接信息 */
@@ -184,7 +184,7 @@ int rings_init(void)
 struct rte_ring *get_worker_ring(uint16_t worker_id)
 {
     if (worker_id >= g_app_config->n_worker_cores) {
-        RTE_LOG(ERR, RING, "Invalid worker_id %u\n", worker_id);
+        RTE_LOG(ERR, RING_MANAGER, "Invalid worker_id %u\n", worker_id);
         return NULL;
     }
     
@@ -273,8 +273,8 @@ void ring_print_stats(void)
     
     for (i = 0; i < g_ring_mgr->n_rings; i++) {
         ring_get_stats(i, &stats);
-        printf("%-15s %-12" PRIu64 " %-12" PRIu64 " %-12" PRIu64 " %-12" PRIu64 " %-10" PRIu64 " %-10" PRIu64 "\n",
-               rte_ring_get_name(g_ring_mgr->rings[i]),
+        printf("ring%-11d %-12" PRIu64 " %-12" PRIu64 " %-12" PRIu64 " %-12" PRIu64 " %-10" PRIu64 " %-10" PRIu64 "\n",
+               i,
                stats.enqueue_count,
                stats.dequeue_count,
                stats.enqueue_failed,
@@ -294,7 +294,7 @@ void rings_cleanup(void)
         return;
     }
     
-    RTE_LOG(INFO, RING, "Cleaning up rings...\n");
+    RTE_LOG(INFO, RING_MANAGER, "Cleaning up rings...\n");
     
     /* 打印最终统计信息 */
     ring_print_stats();
@@ -329,7 +329,7 @@ void rings_cleanup(void)
     rte_free(g_ring_mgr);
     g_ring_mgr = NULL;
     
-    RTE_LOG(INFO, RING, "Ring cleanup completed\n");
+    RTE_LOG(INFO, RING_MANAGER, "Ring cleanup completed\n");
 }
 
 /* 检查Ring健康状态 */
@@ -339,14 +339,14 @@ int ring_health_check(void)
     int issues = 0;
     
     if (g_ring_mgr == NULL) {
-        RTE_LOG(ERR, RING, "Ring manager not initialized\n");
+        RTE_LOG(ERR, RING_MANAGER, "Ring manager not initialized\n");
         return -1;
     }
     
     for (i = 0; i < g_ring_mgr->n_rings; i++) {
         struct rte_ring *ring = g_ring_mgr->rings[i];
         if (ring == NULL) {
-            RTE_LOG(ERR, RING, "Ring %u is NULL\n", i);
+            RTE_LOG(ERR, RING_MANAGER, "Ring %u is NULL\n", i);
             issues++;
             continue;
         }
@@ -355,8 +355,8 @@ int ring_health_check(void)
         if (rte_ring_full(ring)) {
             struct ring_stats *stats = &g_ring_mgr->stats[i];
             if (stats->ring_full > 1000) {  /* 阈值可调整 */
-                RTE_LOG(WARNING, RING, "Ring %s is frequently full (count: %" PRIu64 ")\n",
-                        rte_ring_get_name(ring), stats->ring_full);
+                RTE_LOG(WARNING, RING_MANAGER, "Ring %d is frequently full (count: %" PRIu64 ")\n",
+                        i, stats->ring_full);
             }
         }
         
@@ -364,8 +364,8 @@ int ring_health_check(void)
         if (rte_ring_empty(ring)) {
             struct ring_stats *stats = &g_ring_mgr->stats[i];
             if (stats->ring_empty > 10000) {  /* 阈值可调整 */
-                RTE_LOG(DEBUG, RING, "Ring %s is frequently empty (count: %" PRIu64 ")\n",
-                        rte_ring_get_name(ring), stats->ring_empty);
+                RTE_LOG(DEBUG, RING_MANAGER, "Ring %d is frequently empty (count: %" PRIu64 ")\n",
+                        i, stats->ring_empty);
             }
         }
     }

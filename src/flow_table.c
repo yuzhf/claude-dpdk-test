@@ -261,10 +261,10 @@ int flow_table_add(struct flow_key *key, struct flow_info **info)
     
     /* 初始化流信息 */
     memcpy(&flow_entry->key, key, sizeof(struct flow_key));
-    flow_entry->packets = 0;
-    flow_entry->bytes = 0;
-    flow_entry->first_seen = current_time;
-    flow_entry->last_seen = current_time;
+    flow_entry->stats.packets = 0;
+    flow_entry->stats.bytes = 0;
+    flow_entry->stats.first_seen = current_time;
+    flow_entry->stats.last_seen = current_time;
     flow_entry->flags = FLOW_STATE_NEW;
     
     g_flow_mgr->current_flows++;
@@ -289,9 +289,9 @@ void update_flow_stats(struct flow_info *info, struct rte_mbuf *pkt)
         return;
     }
     
-    info->packets++;
-    info->bytes += rte_pktmbuf_pkt_len(pkt);
-    info->last_seen = rte_get_timer_cycles();
+    info->stats.packets++;
+    info->stats.bytes += rte_pktmbuf_pkt_len(pkt);
+    info->stats.last_seen = rte_get_timer_cycles();
     
     /* 更新流状态 */
     if (info->flags & FLOW_STATE_NEW) {
@@ -362,18 +362,18 @@ int flow_table_cleanup_expired(void)
         struct flow_info *flow = &g_flow_mgr->flow_entries[i];
         
         /* 跳过空条目 */
-        if (flow->first_seen == 0) {
+        if (flow->stats.first_seen == 0) {
             continue;
         }
         
         /* 检查是否过期 */
         bool should_remove = false;
         
-        if ((current_time - flow->last_seen) > g_flow_mgr->flow_timeout_tsc) {
+        if ((current_time - flow->stats.last_seen) > g_flow_mgr->flow_timeout_tsc) {
             /* 普通超时 */
             should_remove = true;
         } else if ((flow->flags & FLOW_STATE_CLOSING) && 
-                   ((current_time - flow->last_seen) > (rte_get_timer_hz() * 30))) {
+                   ((current_time - flow->stats.last_seen) > (rte_get_timer_hz() * 30))) {
             /* TCP连接关闭后30秒超时 */
             should_remove = true;
         }

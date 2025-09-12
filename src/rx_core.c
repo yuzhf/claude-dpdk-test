@@ -23,7 +23,7 @@
 
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_RX_CORE RTE_LOGTYPE_USER4
+#define RTE_LOGTYPE_RX_CORE RTE_LOGTYPE_USER5
 
 /* RX核心统计信息 */
 struct rx_core_stats {

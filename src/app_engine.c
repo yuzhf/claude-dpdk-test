@@ -21,7 +21,7 @@
 #include <hs.h>
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_APP RTE_LOGTYPE_USER9
+#define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
 #define HTTP_METHOD_GET     "GET "
 #define HTTP_METHOD_POST    "POST "

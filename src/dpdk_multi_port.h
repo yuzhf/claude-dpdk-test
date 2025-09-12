@@ -39,6 +39,10 @@
 #define MBUF_CACHE_SIZE     256     /* mbuf缓存大小 */
 #define MBUF_COUNT          8192    /* mbuf池大小 */
 
+/* 时间和批处理常量 */
+#define US_PER_S 1000000            /* 每秒微秒数 */
+#define BURST_TX_DRAIN_US 100       /* 发送批处理排空时间(微秒) */
+
 /* 五元组哈希表配置 */
 #define FLOW_HASH_ENTRIES   1024*1024  /* 流表最大条目数 */
 #define FLOW_TIMEOUT        300         /* 流超时时间(秒) */
@@ -60,6 +64,10 @@
 #define CLICKHOUSE_DB       "traffic_analysis"
 #define CLICKHOUSE_TABLE    "flow_stats"
 #define CH_BATCH_SIZE       1000        /* ClickHouse批量插入大小 */
+
+/* 实时统计配置 */
+#define DEFAULT_STATS_REFRESH_INTERVAL  1  /* 默认统计刷新间隔(秒) */
+#define STATS_OUTPUT_FILE               "traffic_analysis.s"  /* 实时统计输出文件 */
 
 /* 流方向定义 */
 #define FLOW_DIR_UPSTREAM   1           /* 上行 */
@@ -276,16 +284,27 @@ void print_enhanced_stats(void);
 void print_protocol_stats(void);
 void print_application_stats(void);
 
+/* 增强流表统计 */
+int enhanced_stats_init(void);
+void enhanced_stats_cleanup(void);
+
+/* ClickHouse输出模块 */
+void print_clickhouse_stats(void);
+int clickhouse_flush_buffer(void);
+
+/* 流表管理 */
+int flow_table_cleanup_expired(void);
+
 /* 内联函数 - 五元组哈希 */
 static inline uint32_t flow_hash_func(const void *key, uint32_t key_len, uint32_t init_val)
 {
     const struct flow_key *fkey = (const struct flow_key *)key;
     uint32_t hash_val;
     
-    /* 使用jhash计算五元组哈希值 */
-    hash_val = rte_jhash_32b((const uint32_t *)fkey, 
-                             sizeof(struct flow_key) / sizeof(uint32_t), 
-                             init_val);
+    /* 使用jhash计算五元组哈希值，处理可能的非对齐访问 */
+    hash_val = rte_jhash((const void *)fkey, 
+                         sizeof(struct flow_key), 
+                         init_val);
     return hash_val;
 }
 

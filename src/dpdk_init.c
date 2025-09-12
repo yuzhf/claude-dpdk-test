@@ -42,7 +42,7 @@
 
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_DPDK_INIT RTE_LOGTYPE_USER2
+#define RTE_LOGTYPE_DPDK_INIT RTE_LOGTYPE_USER3
 
 /* 默认RSS key */
 static uint8_t rss_key[] = {
@@ -57,17 +57,16 @@ static uint8_t rss_key[] = {
 static struct rte_eth_conf port_conf_default = {
     .rxmode = {
         .mtu = RTE_ETHER_MAX_LEN,
-        .split_hdr_size = 0,
     },
     .rx_adv_conf = {
         .rss_conf = {
             .rss_key = rss_key,
             .rss_key_len = sizeof(rss_key),
-            .rss_hf = ETH_RSS_IP | ETH_RSS_TCP | ETH_RSS_UDP,
+            .rss_hf = RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP,
         },
     },
     .txmode = {
-        .mq_mode = ETH_MQ_TX_NONE,
+        .mq_mode = RTE_ETH_MQ_TX_NONE,
     },
 };
 
@@ -126,9 +125,9 @@ static int configure_port_queues(uint16_t port_id, uint16_t n_rx_queues, uint16_
     
     /* 检查RSS支持 */
     if (dev_info.flow_type_rss_offloads & port_conf.rx_adv_conf.rss_conf.rss_hf) {
-        port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
+        port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
     } else {
-        port_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
+        port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_NONE;
         port_conf.rx_adv_conf.rss_conf.rss_hf = 0;
         RTE_LOG(WARNING, DPDK_INIT, "Port %u does not support RSS\n", port_id);
     }
@@ -260,12 +259,12 @@ int port_init(uint16_t port_id, uint16_t n_rx_queues, uint16_t n_tx_queues)
     /* 等待链路状态 */
     struct rte_eth_link link;
     int link_get_err;
-    const int max_check_time = 90;  /* 9s (90 * 100ms) max */
+    const int max_check_time = 10;  /* 1s (10 * 100ms) max */
     
     for (int count = 0; count <= max_check_time; count++) {
         memset(&link, 0, sizeof(link));
         link_get_err = rte_eth_link_get_nowait(port_id, &link);
-        if (link_get_err >= 0 && link.link_status == ETH_LINK_UP) {
+        if (link_get_err >= 0 && link.link_status == RTE_ETH_LINK_UP) {
             break;
         } else if (link_get_err < 0) {
             RTE_LOG(ERR, DPDK_INIT, "Port %u link get failed: %s\n",
@@ -275,10 +274,10 @@ int port_init(uint16_t port_id, uint16_t n_rx_queues, uint16_t n_tx_queues)
         rte_delay_ms(100);
     }
     
-    if (link.link_status == ETH_LINK_UP) {
+    if (link.link_status == RTE_ETH_LINK_UP) {
         RTE_LOG(INFO, DPDK_INIT, "Port %u Link Up - speed %u Mbps - %s\n",
                 port_id, link.link_speed,
-                (link.link_duplex == ETH_LINK_FULL_DUPLEX) ? "full-duplex" : "half-duplex");
+                (link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ? "full-duplex" : "half-duplex");
     } else {
         RTE_LOG(WARNING, DPDK_INIT, "Port %u Link Down\n", port_id);
     }

@@ -18,7 +18,7 @@
 
 #include "dpdk_multi_port.h"
 
-#define RTE_LOGTYPE_STATS RTE_LOGTYPE_USER11
+#define RTE_LOGTYPE_STATS RTE_LOGTYPE_USER4
 
 /* 协议统计结构 */
 struct protocol_stats {
@@ -517,23 +517,14 @@ void print_enhanced_stats(void)
     printf("===================================\n\n");
 }
 
-/* 获取协议识别统计 */
-void print_protocol_stats(void)
-{
-    extern void print_protocol_stats(void);  /* 来自protocol_engine.c */
-}
+/* 获取协议识别统计 - 调用protocol_engine中的实现 */
+/* 函数在protocol_engine.c中实现 */
 
-/* 获取应用识别统计 */
-void print_application_stats(void)
-{
-    extern void print_application_stats(void);  /* 来自app_engine.c */
-}
+/* 获取应用识别统计 - 调用app_engine中的实现 */
+/* 函数在app_engine.c中实现 */
 
-/* 获取ClickHouse统计 */
-void print_clickhouse_stats(void)
-{
-    extern void print_clickhouse_stats(void);  /* 来自clickhouse_client.c */
-}
+/* 获取ClickHouse统计 - 调用clickhouse_client中的实现 */
+/* 函数在clickhouse_client.c中实现 */
 
 /* 清理统计模块 */
 void enhanced_stats_cleanup(void)
