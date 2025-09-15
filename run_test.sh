@@ -42,8 +42,8 @@ echo "Press Ctrl+C to stop"
 # 使用简单的配置运行程序
 # 这里使用一个简单的配置，假设系统至少有4个核心
 echo "Starting program with command:"
-echo "./bin/suna_ai_dpi -l 0-3 --log-level=debug --socket-mem=512,512 --file-prefix=test_run -- -p 0x1 -q port0:1 -r 1:port0.0 -w 2"
-./bin/suna_ai_dpi -l 0-3 --log-level=debug --socket-mem=10 --file-prefix=test_run -- -p 0x1 -q port0:1 -r 1:port0.0 -w 2
-#./bin/suna_ai_dpi -l 0,1-4 --socket-mem=20 --file-prefix=mlxcx6 -- -p 0x1 -q port0:4 -r 1:port0.0-3 -w 3,4
+echo "./bin/suna_ai_dpi -l 0-3 --log-level=debug --socket-mem=10 --file-prefix=test_run -- -p 0x1 -q port0:2 -r 1:port0.0-1 -w 2,3"
+./bin/suna_ai_dpi -l 0-3 --log-level=debug --socket-mem=10 --file-prefix=test_run -- -p 0x1 -q port0:2 -r 1:port0.0-1 -w 2,3
+
 
 echo "Test run completed"

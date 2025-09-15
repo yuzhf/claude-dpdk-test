@@ -1,6 +1,6 @@
 /*
- * 主控制程序和线程管理
- * 负责初始化所有模块，启动各个核心线程，处理信号和统计输出
+ * DPDK多端口包处理主程序
+ * 实现多核心生产者-消费者模型，支持多端口、多队列并行处理
  */
 
 #include <stdio.h>
@@ -8,21 +8,12 @@
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
-#include <sys/types.h>
-#include <sys/queue.h>
-#include <netinet/in.h>
-#include <setjmp.h>
-#include <stdarg.h>
-#include <ctype.h>
-#include <errno.h>
-#include <getopt.h>
 #include <signal.h>
-#include <stdbool.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include <rte_common.h>
 #include <rte_log.h>
-#include <rte_malloc.h>
 #include <rte_memory.h>
 #include <rte_memcpy.h>
 #include <rte_eal.h>
@@ -36,8 +27,15 @@
 #include <rte_interrupts.h>
 #include <rte_random.h>
 #include <rte_debug.h>
+#include <rte_ether.h>
+#include <rte_ethdev.h>
+#include <rte_mempool.h>
+#include <rte_mbuf.h>
+#include <rte_ring.h>
+#include <rte_hash.h>
 
 #include "dpdk_multi_port.h"
+#include "stats_writer.h"
 
 #define RTE_LOGTYPE_MAIN RTE_LOGTYPE_USER7
 
@@ -54,6 +52,8 @@ extern int ring_dequeue_burst(struct rte_ring *ring, struct rte_mbuf **pkts, uin
 extern void print_rx_cores_summary(void);
 extern void print_worker_cores_summary(void);
 extern void ring_print_stats(void);
+extern void get_rx_core_stats(uint16_t rx_core_idx, struct rx_core_stats *stats_out);
+extern void get_worker_core_stats(uint16_t worker_core_idx, struct worker_core_stats *stats_out);
 
 /* 信号处理函数 */
 void signal_handler(int sig)
@@ -67,26 +67,7 @@ void signal_handler(int sig)
 /* 将统计信息写入文件 */
 static void write_stats_to_file(void)
 {
-    FILE *file = fopen(STATS_OUTPUT_FILE, "w");
-    if (file == NULL) {
-        RTE_LOG(ERR, MAIN, "Cannot open stats output file %s\n", STATS_OUTPUT_FILE);
-        return;
-    }
-
-    fprintf(file, "=======================================================\n");
-    fprintf(file, "           DPDK Multi-Port Packet Processor           \n");
-    fprintf(file, "=======================================================\n");
-
-    /* 这里需要实现将统计信息写入文件的逻辑 */
-    /* 由于现有的打印函数直接输出到stdout，我们需要重写这些函数 */
-    /* 或者创建新的函数将统计信息写入文件 */
-
-    fprintf(file, "NOTE: Real-time stats output to file is not fully implemented yet.\n");
-    fprintf(file, "Please check the terminal output for detailed statistics.\n");
-
-    fprintf(file, "=======================================================\n");
-
-    fclose(file);
+    write_all_stats_to_file();
 }
 
 /* 打印应用程序统计信息到终端（用于调试）*/
@@ -141,7 +122,7 @@ void print_stats(void)
 /* 实时统计线程函数 */
 static int stats_thread_main(__rte_unused void *arg)
 {
-    RTE_LOG(INFO, MAIN, "Starting real-time stats thread with interval %u seconds\n", stats_refresh_interval);
+    RTE_LOG(INFO, MAIN, "Starting real-time stats thread with interval %u seconds\n\n", stats_refresh_interval);
 
     stats_thread_running = true;
 
@@ -372,7 +353,12 @@ int main(int argc, char **argv)
     printf("Press Ctrl+C to quit\n\n");
 
     /* 启动实时统计线程 */
-    //rte_eal_remote_launch(stats_thread_main, NULL, rte_get_next_lcore(rte_lcore_id(), 1, 0));
+    if (!rte_lcore_is_enabled(g_app_config->stats_lcore_id)) {
+        RTE_LOG(ERR, MAIN, "Stats lcore %u is not enabled in EAL\n", g_app_config->stats_lcore_id);
+        rte_panic("Stats lcore is not enabled\n");
+    }
+    RTE_LOG(INFO, MAIN, "Starting stats thread on lcore %u\n", g_app_config->stats_lcore_id);
+    rte_eal_remote_launch(stats_thread_main, NULL, g_app_config->stats_lcore_id);
 
     /* 启动所有核心线程 */
     ret = launch_rx_cores();
@@ -389,7 +375,7 @@ int main(int argc, char **argv)
 
     /* 主循环：定期打印统计信息到终端（用于调试）*/
     while (!force_quit) {
-        print_stats();
+        //print_stats();
         rte_delay_ms(100);  /* 100ms休眠 */
     }
 

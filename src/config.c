@@ -27,15 +27,17 @@ static struct app_config default_config = {
     .n_tx_queues = {4, 4},
     .n_rx_cores = 3,
     .n_worker_cores = 3,
+    .stats_lcore_id = 1,  /* 默认统计线程核心ID */
     .n_rings = 0
 };
 
 /* 命令行选项 */
-static const char short_options[] = 
+static const char short_options[] =
     "p:"  /* portmask */
     "q:"  /* queues per port */
     "r:"  /* rx cores */
     "w:"  /* worker cores */
+    "s:"  /* stats core */
     "h";  /* help */
 
 static const struct option long_options[] = {
@@ -43,6 +45,7 @@ static const struct option long_options[] = {
     {"queues", required_argument, NULL, 'q'},
     {"rx-cores", required_argument, NULL, 'r'},
     {"worker-cores", required_argument, NULL, 'w'},
+    {"stats-core", required_argument, NULL, 's'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
 };
@@ -69,9 +72,9 @@ static int parse_portmask(const char *portmask_str)
     }
     g_app_config->n_ports = i;
 
-    RTE_LOG(INFO, CONFIG, "Parsed %u ports from portmask 0x%lx\n", 
+    RTE_LOG(INFO, CONFIG, "Parsed %u ports from portmask 0x%lx\n",
             g_app_config->n_ports, portmask);
-    
+
     return 0;
 }
 
@@ -92,7 +95,7 @@ static int parse_queue_config(const char *queue_str)
     while (token != NULL) {
         port_str = strtok(token, ":");
         queue_str_ptr = strtok(NULL, ":");
-        
+
         if (!port_str || !queue_str_ptr) {
             RTE_LOG(ERR, CONFIG, "Invalid queue config format\n");
             free(str_copy);
@@ -112,7 +115,7 @@ static int parse_queue_config(const char *queue_str)
             if (g_app_config->port_list[i] == port_id) {
                 g_app_config->n_rx_queues[i] = n_queues;
                 g_app_config->n_tx_queues[i] = n_queues;
-                RTE_LOG(INFO, CONFIG, "Port %u: %u RX/TX queues\n", 
+                RTE_LOG(INFO, CONFIG, "Port %u: %u RX/TX queues\n",
                         port_id, n_queues);
                 break;
             }
@@ -143,7 +146,7 @@ static int parse_rx_cores_config(const char *cores_str)
     while (core_token != NULL && core_idx < MAX_RX_CORES) {
         core_str = strtok(core_token, ":");
         queue_str = strtok(NULL, ":");
-        
+
         if (!core_str || !queue_str) {
             RTE_LOG(ERR, CONFIG, "Invalid rx core config format\n");
             free(str_copy);
@@ -151,11 +154,11 @@ static int parse_rx_cores_config(const char *cores_str)
         }
 
         lcore_id = (uint16_t)strtoul(core_str, NULL, 10);
-        
+
         /* 解析队列配置 port0.0-3 */
         port_str = strtok(queue_str, ".");
         range_str = strtok(NULL, ".");
-        
+
         if (!port_str || !range_str) {
             RTE_LOG(ERR, CONFIG, "Invalid queue range format\n");
             free(str_copy);
@@ -188,7 +191,7 @@ static int parse_rx_cores_config(const char *cores_str)
 
         RTE_LOG(INFO, CONFIG, "RX Core %u: Port %u, Queues %u-%u (%u queues)\n",
                 lcore_id, port_id, queue_start, queue_end, lconf->n_rx_queues);
-        
+
         core_idx++;
         core_token = strtok(NULL, ",");
     }
@@ -214,13 +217,13 @@ static int parse_worker_cores_config(const char *cores_str)
     token = strtok(str_copy, ",");
     while (token != NULL && core_idx < MAX_WORKER_CORES) {
         lcore_id = (uint16_t)strtoul(token, NULL, 10);
-        
+
         struct worker_conf *wconf = &g_app_config->worker_conf[core_idx];
         wconf->lcore_id = lcore_id;
         wconf->n_producer_cores = 0;
-        
+
         RTE_LOG(INFO, CONFIG, "Worker Core %u configured\n", lcore_id);
-        
+
         core_idx++;
         token = strtok(NULL, ",");
     }
@@ -239,9 +242,10 @@ static void print_usage(const char *prgname)
     printf("  -q, --queues QUEUES: Queue config per port, format: port0:4,port1:4\n");
     printf("  -r, --rx-cores CORES: RX core config, format: 1:port0.0-3,2:port1.0-1,3:port1.2-3\n");
     printf("  -w, --worker-cores CORES: Worker core config, format: 4,5,6\n");
+    printf("  -s, --stats-core CORE: Stats thread core ID (default: 0)\n");
     printf("  -h, --help: Show this help message\n\n");
     printf("Example:\n");
-    printf("  %s -l 0-6 -- -p 0x3 -q port0:4,port1:4 -r 1:port0.0-3,2:port1.0-1,3:port1.2-3 -w 4,5,6\n", prgname);
+    printf("  %s -l 0-6 -- -p 0x3 -q port0:4,port1:4 -r 1:port0.0-3,2:port1.0-1,3:port1.2-3 -w 4,5,6 -s 7\n", prgname);
 }
 
 /* 初始化配置 */
@@ -256,7 +260,7 @@ int config_init(void)
 
     /* 使用默认配置初始化 */
     memcpy(g_app_config, &default_config, sizeof(struct app_config));
-    
+
     RTE_LOG(INFO, CONFIG, "Configuration initialized with defaults\n");
     return 0;
 }
@@ -298,6 +302,10 @@ int config_parse_args(int argc, char **argv)
                 return -1;
             }
             break;
+        case 's':
+            g_app_config->stats_lcore_id = (uint16_t)strtoul(optarg, NULL, 10);
+            RTE_LOG(INFO, CONFIG, "Stats thread core set to %u\n", g_app_config->stats_lcore_id);
+            break;
         case 'h':
             print_usage(prgname);
             return 1; /* 正常退出 */
@@ -317,7 +325,7 @@ void config_print(void)
     int i, j;
 
     printf("\n=== Application Configuration ===\n");
-    
+
     printf("Ports (%u): ", g_app_config->n_ports);
     for (i = 0; i < g_app_config->n_ports; i++) {
         printf("%u ", g_app_config->port_list[i]);
@@ -325,7 +333,7 @@ void config_print(void)
     printf("\n");
 
     for (i = 0; i < g_app_config->n_ports; i++) {
-        printf("Port %u: %u RX queues, %u TX queues\n", 
+        printf("Port %u: %u RX queues, %u TX queues\n",
                g_app_config->port_list[i],
                g_app_config->n_rx_queues[i],
                g_app_config->n_tx_queues[i]);
@@ -336,7 +344,7 @@ void config_print(void)
         struct lcore_conf *lconf = &g_app_config->rx_lcore_conf[i];
         printf("  Core %u: ", lconf->lcore_id);
         for (j = 0; j < lconf->n_rx_queues; j++) {
-            printf("Port%u.Q%u ", 
+            printf("Port%u.Q%u ",
                    lconf->rx_queues[j].port_id,
                    lconf->rx_queues[j].queue_id);
         }
